@@ -10,16 +10,14 @@ import argparse
 from datetime import datetime
 from ratelimit import limits, sleep_and_retry
 from pyinaturalist import (
-    get_observations, 
     get_observation_species_counts,
-    get_taxa,
-    get_taxa_by_id
-)
+    get_observation_histogram
+    )
 
 # Define rate limit: 60 calls per minute
 CALLS = 60
 RATE_LIMIT_PERIOD = 60  # seconds
-PER_PAGE = 200  # Number of results per page    
+PER_PAGE = 5  # Number of results per page    
 
 @sleep_and_retry
 @limits(calls=CALLS, period=RATE_LIMIT_PERIOD)
@@ -41,15 +39,16 @@ def get_month_with_most_obs(histogram):
     max_month_index = histogram.index(max(histogram))
     return months[max_month_index]
 
-def extract_taxonomy(taxon_dict):
+def extract_taxonomy(ancestor_ids):
     """
     Extract kingdom and phylum from taxon dictionary.
     Returns tuple of (kingdom, phylum)
     """
-    kingdom = "Unknown"
-    phylum = "Unknown"
-    
+
     try:
+        kingdom = "Unknown"
+        phylum = "Unknown"
+
         # Common kingdom and phylum IDs in iNaturalist
         #  plant 47126, fungi 47170, animalia 1, protozoa 47686, chromista 48222, archaea 151817, bacteria 67333
         kingdom_ids = {
@@ -62,46 +61,36 @@ def extract_taxonomy(taxon_dict):
             151817: "Archaea"
         }
         
-        # Important phyla for algae and other common groups
+        # Important phyla for algae and other common groups - TODO: bring in dynamically
         phyla_ids = {
-            7683: "Rhodophyta",  # Red algae
-            7639: "Chlorophyta",  # Green algae
-            7629: "Ochrophyta",  # Brown algae, includes phaeophyceae
-            47686: "Cyanobacteria",  # Blue-green algae
+            57774: "Rhodophyta",  # Red algae
+            50863: "Chlorophyta",  # Green algae
             20978: "Arthropoda",  # Arthropods
-            3: "Chordata",  # Chordates
-            11: "Mollusca",  # Mollusks
-            21: "Annelida",  # Annelids
-            5322: "Echinodermata",  # Echinoderms
-            54: "Cnidaria",  # Cnidarians
-            9611: "Porifera"  # Sponges
+            47115: "Mollusca",  # Mollusks
+            47491: "Annelida",  # Annelids
+            47549: "Echinodermata",  # Echinoderms
+            47534: "Cnidaria",  # Cnidarians
         }
-        
-        # First try to get from the ancestor_ids if available
-        if 'ancestor_ids' in taxon_dict and taxon_dict['ancestor_ids']:
-            for ancestor_id in taxon_dict['ancestor_ids']:
-                if ancestor_id in kingdom_ids:
-                    kingdom = kingdom_ids[ancestor_id]
-                if ancestor_id in phyla_ids:
-                    phylum = phyla_ids[ancestor_id]
-        
-        # Try direct properties if ancestry didn't work
-        if kingdom == "Unknown" and 'kingdom_name' in taxon_dict and taxon_dict['kingdom_name']:
-            kingdom = taxon_dict['kingdom_name']
-        
-        if phylum == "Unknown" and 'phylum_name' in taxon_dict and taxon_dict['phylum_name']:
-            phylum = taxon_dict['phylum_name']
             
-        # For red algae specific case
-        if kingdom == "Unknown" and phylum == "Rhodophyta":
-            kingdom = "Chromista"
-            
-        # For brown and green algae
-        if kingdom == "Unknown" and phylum in ["Chlorophyta", "Ochrophyta"]:
-            kingdom = "Chromista"
-            
-        return (kingdom, phylum)
+        # The second element (index 1) should be the kingdom
+        if len(ancestor_ids) > 1:
+            kingdom_id = ancestor_ids[1]
+            kingdom = kingdom_ids.get(kingdom_id, "Unknown")
+
+        # The third element (index 2) should be the phylum
+        if len(ancestor_ids) > 2:
+            phylum_id = ancestor_ids[2]
+            phylum = phyla_ids.get(phylum_id, "Unknown")
+
+        # Fallback to direct properties if ancestry didn't work
+        # if kingdom == "Unknown" and 'kingdom_name' in taxon_dict and taxon_dict['kingdom_name']:
+        #     kingdom = taxon_dict['kingdom_name']
         
+        # if phylum == "Unknown" and 'phylum_name' in taxon_dict and taxon_dict['phylum_name']:
+        #     phylum = taxon_dict['phylum_name']
+
+        return kingdom, phylum
+
     except Exception as e:
         print(f"Error extracting taxonomy: {e}")
         return ("Unknown", "Unknown")
@@ -121,230 +110,137 @@ def extract_month(date_value):
     except (IndexError, ValueError, AttributeError):
         return None
 
-def get_histogram_for_species(taxon_id, place_id, quality_grade="research", max_pages=5):
+from pyinaturalist import get_observation_histogram
+
+def get_histogram_for_species(taxon_id, place_id, quality_grade="research"):
     """
-    Fetch histogram data specifically for one species.
+    Fetch histogram data for one species using get_observation_histogram.
     Returns a 12-element list with counts for each month.
     """
-    histogram = [0] * 12
-    page = 1
-    has_more = True
-    
-    print(f"Fetching individual observations for taxon {taxon_id}...")
-    
-    while has_more and page <= max_pages:
-        try:
-            observations = rate_limited_api_call(
-                get_observations,
-                taxon_id=taxon_id,
-                place_id=place_id,
-                quality_grade=quality_grade,
-                per_page=PER_PAGE,
-                page=page,
-                returns="json"
-            )
-            
-            # Process observations
-            for obs in observations['results']:
-                # Get observation month
-                month = None
-                if 'observed_on_details' in obs and obs['observed_on_details']:
-                    date_obj = obs['observed_on_details'].get('date')
-                    month = extract_month(date_obj)
-                elif 'observed_on' in obs and obs['observed_on']:
-                    month = extract_month(obs['observed_on'])
-                
-                # Update histogram if month was successfully extracted
-                if month is not None:
-                    histogram[month] += 1
-            
-            # Check if we have more pages
-            total_results = observations.get('total_results', 0)
-            has_more = total_results > page * PER_PAGE if total_results else False
-            page += 1
-            
-        except Exception as e:
-            print(f"Error fetching observations for taxon {taxon_id}: {e}")
-            break
-    
-    return histogram
-
-def fetch_detailed_taxon_info(taxon_id):
-    """
-    Fetch detailed taxonomy information for a specific taxon ID.
-    Returns dictionary with detailed taxon information.
-    """
     try:
-        print(f"Fetching detailed taxonomy for taxon {taxon_id}...")
-        taxon_response = rate_limited_api_call(
-            get_taxa_by_id,
-            taxon_id=taxon_id
-        )
+        params = {
+            'taxon_id': taxon_id,
+            'place_id': place_id,
+            'quality_grade': quality_grade,
+            'date_field': 'observed'
+        }
+        histogram_data = get_observation_histogram(**params)
+
+        # Initialize histogram with zeros for each month (0-indexed)
+        histogram = [0] * 12
+        for month_str, count in histogram_data.items():
+            month = int(month_str) - 1  # Convert to 0-based index
+            histogram[month] = count
+        print("Histogram for taxon ", taxon_id, ":", histogram)
         
-        if taxon_response and 'results' in taxon_response and taxon_response['results']:
-            return taxon_response['results'][0]
-        return {}
-        
+        return histogram
     except Exception as e:
-        print(f"Error fetching detailed taxonomy for taxon {taxon_id}: {e}")
-        return {}
+        print(f"Error fetching histogram for taxon {taxon_id}: {e}")
+        return [0] * 12
 
 def main():
     parser = argparse.ArgumentParser(description='Collect species data from FMR intertidal in iNaturalist')
-    parser.add_argument('--output', default='fmr_intertidal_species.csv', help='Output CSV filename')
-    parser.add_argument('--max_pages', type=int, default=10, help='Maximum number of pages to fetch')
+    parser.add_argument('--output', default='inat_species_summary.csv', help='Output CSV filename')
+    parser.add_argument('--max_pages', type=int, default=2, help='Maximum number of pages to fetch')
     args = parser.parse_args()
     
     place_id = 51347  # FMR intertidal
     quality_grade = "research"  # Research grade observations only
     
+    species_results = []  # List to store species data from all pages
+    page = 1  # Start from the first page
+
     species_data = {}  # Store species data keyed by taxon_id
     
     print(f"Fetching species counts for FMR intertidal (place_id={place_id})...")
     
     # First get species counts to know what species exist in this location
-    try:
+
+    # bulk fetching 
+    page = 1    
+    
+    # Using bulk requests to get observations
+    while True:
         counts_response = rate_limited_api_call(
             get_observation_species_counts,
             place_id=place_id,
             quality_grade=quality_grade,
-            # Limiting to make sure we don't exceed rate limits
             per_page=PER_PAGE
         )
         
-        # Process species counts
-        print(f"Found {len(counts_response['results'])} species. Processing...")
-        
-        # Create batch lists of taxon IDs to fetch detailed info
-        all_taxon_ids = [result['taxon']['id'] for result in counts_response['results']]
-        taxon_id_batches = [all_taxon_ids[i:i+100] for i in range(0, len(all_taxon_ids), 100)]
-        
-        # Store detailed taxon data
-        taxon_details = {}
-        
-        # Fetch detailed taxon information in batches
-        for batch in taxon_id_batches:
-            print(f"Fetching detailed taxonomy for {len(batch)} taxa...")
-            taxa_response = rate_limited_api_call(
-                get_taxa,
-                taxon_id=batch
-            )
-            
-            # Store detailed taxon info
-            for taxon in taxa_response['results']:
-                taxon_details[taxon['id']] = taxon
-        
-        # Now process with detailed info
-        unknown_kingdom_taxa = []
-        
-        for result in counts_response['results']:
-            taxon_id = result['taxon']['id']
-            count = result['count']
-            common_name = result['taxon'].get('preferred_common_name', '')
-            latin_name = result['taxon']['name']
-            
-            # Get detailed taxonomy if available
-            taxon_dict = taxon_details.get(taxon_id, result['taxon'])
-            
-            # Extract kingdom and phylum
-            kingdom, phylum = extract_taxonomy(taxon_dict)
+        results = counts_response['results']
+        if not results:
+            print("No more results found.")
+            break  # Exit if no results are returned
 
-            # Extract iconic taxon name
-            iconic_taxon_name = taxon_dict.get('iconic_taxon_name', '')
-            
-            # Override iconic taxon name based on ancestor IDs
-            if 'ancestor_ids' in taxon_dict and taxon_dict['ancestor_ids']:
-                if 50863 in taxon_dict['ancestor_ids']:
-                    iconic_taxon_name = "Green Algae"
-                elif 57774 in taxon_dict['ancestor_ids']:
-                    iconic_taxon_name = "Red Algae"
-    
-    
-            # Keep track of taxa with unknown kingdom for further processing
-            if kingdom == "Unknown":
-                unknown_kingdom_taxa.append(taxon_id)
-            
-            # Store data about each species
-            species_data[taxon_id] = {
-                'kingdom': kingdom,
-                'phylum': phylum,
-                'common_name': common_name,
-                'latin_name': latin_name,
-                'taxon_id': taxon_id,
-                'count': count,
-                'histogram': [0] * 12,  # Initialize empty histogram for months
-            }
+        species_results.extend(results)
+        print(f"Fetched page {page} with {len(results)} species.")
+
+        # Check if we have reached the max_pages limit
+        if page >= args.max_pages:
+            print(f"Reached the maximum page limit ({args.max_pages}).")
+            break
+
+        page += 1  # Move to the next page
+
+    print(f"Total species fetched: {len(species_results)}.  Processing...")
         
-        # For species with unknown kingdom, try to fetch individually
-        if unknown_kingdom_taxa:
-            print(f"Found {len(unknown_kingdom_taxa)} species with unknown kingdom. Fetching individually...")
-            
-            for taxon_id in unknown_kingdom_taxa:
-                # Get more detailed taxonomy
-                detailed_taxon = fetch_detailed_taxon_info(taxon_id)
-                
-                if detailed_taxon:
-                    kingdom, phylum = extract_taxonomy(detailed_taxon)
-                    species_data[taxon_id]['kingdom'] = kingdom
-                    species_data[taxon_id]['phylum'] = phylum
+    # Create batch lists of taxon IDs to fetch detailed info
+    # all_taxon_ids = [result['taxon']['id'] for result in species_results]
+    # taxon_id_batches = [all_taxon_ids[i:i+100] for i in range(0, len(all_taxon_ids), 100)]
+    
+    # Store detailed taxon data
+    # taxon_details = {}
+    
+    # # Fetch detailed taxon information in batches
+    # for batch in taxon_id_batches:
+    #     print(f"Fetching detailed taxonomy for {len(batch)} taxa...")
+    #     taxa_response = rate_limited_api_call(
+    #         get_taxa,
+    #         taxon_id=batch
+    #     )
+        
+    #     # Store detailed taxon info
+    #     for taxon in taxa_response['results']:
+    #         taxon_details[taxon['id']] = taxon
+    
+    # Now process with detailed info
+    unknown_kingdom_taxa = []
+    
+    for result in species_results:
+        iconic_taxon_name = result['taxon']['iconic_taxon_name']
+        taxon_id = result['taxon']['id']
+        count = result['count']
+        common_name = result['taxon'].get('preferred_common_name', '')
+        latin_name = result['taxon']['name']
+
+        # Get ancestor_ids
+        ancestor_ids = result['taxon'].get('ancestor_ids', [])
                     
-                    print(f"Updated taxonomy for {species_data[taxon_id]['latin_name']}: Kingdom={kingdom}, Phylum={phylum}")
-    
-    except Exception as e:
-        print(f"Error fetching species counts: {e}")
-        return
-    
+        kingdom, phylum = extract_taxonomy(ancestor_ids)    
+
+        # Store data about each species
+        species_data[taxon_id] = {
+            'iconic_taxon_name': iconic_taxon_name,
+            'kingdom': kingdom,
+            'phylum': phylum,
+            'common_name': common_name,
+            'latin_name': latin_name,
+            'taxon_id': taxon_id,
+            'count': count,
+            'histogram': [0] * 12,  # Initialize empty histogram for months
+        }
+
+        if kingdom == "Unknown":
+            unknown_kingdom_taxa.append(taxon_id)
+
+        
     # Now fetch observations to build histograms
     print(f"Fetching observations for {len(species_data)} species...")
     
-    # Track species with all zeros in histogram
+    # Track species with all zeros in histogram (should be all of them)
     zero_histogram_species = []
-    
-    # Start with bulk fetching for efficiency
-    page = 1
-    has_more = True
-    
-    print("Fetching observations in bulk...")
-    
-    # Using bulk requests to get observations
-    while has_more and page <= args.max_pages:
-        try:
-            observations = rate_limited_api_call(
-                get_observations,
-                place_id=place_id,
-                quality_grade=quality_grade,
-                per_page=PER_PAGE,
-                page=page,
-                returns="json"
-            )
-            
-            # Process observations to update histograms
-            for obs in observations['results']:
-                if 'taxon' in obs and obs['taxon'] and 'id' in obs['taxon']:
-                    taxon_id = obs['taxon']['id']
-                    # If this is a species we're tracking
-                    if taxon_id in species_data:
-                        # Get observation month
-                        month = None
-                        if 'observed_on_details' in obs and obs['observed_on_details']:
-                            date_obj = obs['observed_on_details'].get('date')
-                            month = extract_month(date_obj)
-                        elif 'observed_on' in obs and obs['observed_on']:
-                            month = extract_month(obs['observed_on'])
-                        
-                        # Update histogram if month was successfully extracted
-                        if month is not None:
-                            species_data[taxon_id]['histogram'][month] += 1
-            
-            # Check if we have more pages
-            total_results = observations.get('total_results', 0)
-            has_more = total_results > page * PER_PAGE if total_results else False
-            page += 1
-            
-        except Exception as e:
-            print(f"Error fetching bulk observations: {e}")
-            page += 1
-    
+        
     # Check which species have all zeros in histogram
     for taxon_id, data in species_data.items():
         if all(val == 0 for val in data['histogram']):
@@ -386,7 +282,7 @@ def main():
     
     # Write data to CSV
     with open(args.output, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ['kingdom', 'phylum', 'common_name', 'latin_name', 
+        fieldnames = ['iconic_taxon_name', 'kingdom', 'phylum', 'common_name', 'latin_name', 
                       'taxon_id', 'count', 'histogram', 'peak_month']
         
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -397,6 +293,7 @@ def main():
         
         for species in sorted_species:
             writer.writerow({
+                'iconic_taxon_name': species['iconic_taxon_name'],
                 'kingdom': species['kingdom'],
                 'phylum': species['phylum'],
                 'common_name': species['common_name'],
