@@ -20,11 +20,11 @@ It currently pulls from FMR intertidal (place_id=51347)
 **Usage**
 -----
 
-1. Install required libraries: `csv`, `argparse`, `datetime`, `ratelimit`, and `pyinaturalist`.
+1. Install required libraries: pip install -r requirements.txt
 2. Run the script using `python inat_species_data.py`.
 3. Optional arguments:
-	* `--output`: specify the output CSV filename (default: `inat_species_summary.csv`).
-	* `--max_pages`: specify the maximum number of pages to fetch (default: 2).
+	* `--output`: specify the output CSV filename (default: `inat_species_summary.csv`)
+	* `--place_id`: Place ID to fetch data for (default: 51347 - FMR intertidal)	
 
 **Rate Limiting**
 ----------------
@@ -45,5 +45,4 @@ The script outputs a CSV file with the collected species data. The file includes
 **Notes**
 -------
 * The script uses the `pyinaturalist` library to interact with the iNaturalist API.
-* The script assumes that the `pyinaturalist` library is installed and configured correctly.
 * The script may take several minutes to run depending on the number of pages fetched and the rate limit.

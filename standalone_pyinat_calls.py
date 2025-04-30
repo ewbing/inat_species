@@ -1,5 +1,8 @@
 from pyinaturalist import (
-    get_observation_species_counts,get_taxa_by_id,get_observations,
+    get_observation_species_counts,
+    get_taxa,
+    get_taxa_by_id,
+    get_observations,
     get_observation_histogram
     )
 
@@ -70,13 +73,24 @@ def get_observation_histogram_call():
         histogram[month] = count
     print("Histogram:", histogram)
 
+def get_phyla_taxa():
+    params = {
+        'rank_level': 60,  # Phylum rank level
+        'per_page': 100  # Number of taxa to retrieve per page
+    }
+    phyla_response = get_taxa(**params)
+    phyla_ids = {taxon['id']: taxon['name'] for taxon in phyla_response['results']}
+    print("Number of phyla:", len(phyla_ids))
+    print(phyla_ids)
+
 
 def main():
 #    get_observation_species_counts_call()
 #    get_taxa_by_id_call()
 #    get_taxon_dict_for_observation()
 #    get_observations_call()
-    get_observation_histogram_call()
+#    get_observation_histogram_call()
+    get_phyla_taxa()
 
 if __name__ == "__main__":
     main()
