@@ -24,7 +24,8 @@ It currently pulls from FMR intertidal (place_id=51347)
 2. Run the script using `python inat_species_data.py`.
 3. Optional arguments:
 	* `--output`: specify the output CSV filename (default: `inat_species_summary.csv`)
-	* `--place_id`: Place ID to fetch data for (default: 51347 - FMR intertidal)	
+	* `--place_id`: Place ID to fetch data for (default: 51347 - FMR intertidal)
+	* `--filter`: Input CSV filename - used for filtering species IDs (default:species_filter.csv)
 
 **Rate Limiting**
 ----------------

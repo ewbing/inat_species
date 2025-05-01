@@ -219,7 +219,8 @@ def main():
         "--output", default="inat_species_summary.csv", help="Output CSV filename"
     )
     parser.add_argument(
-        "--input", default="species_list.csv", help="Input CSV filename"
+        "--filter", default="species_filter.csv", 
+        help="Input CSV filename - used for filtering species IDs"
     )
     parser.add_argument(
         "--place_id", type=int, default=51347, 
@@ -237,8 +238,6 @@ def main():
 
     print(f"Fetching species counts for FMR intertidal (place_id={place_id})...")
 
-    # First get species counts to know what species exist in this location
-
     # bulk fetching
     page = 1
 
@@ -246,7 +245,7 @@ def main():
     while True:
 
         # Try to read the input CSV file to get the list of species IDs       
-        filter_ids = read_csv_file(args.input)
+        filter_ids = read_csv_file(args.filter)
         if filter_ids:
             print(f"Filtering species by IDs from {args.input}. Found {len(filter_ids)} species.")
             print(f"First 10 IDs from {args.input} are: {filter_ids[:10]}")
