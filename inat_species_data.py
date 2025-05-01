@@ -16,11 +16,12 @@ from pyinaturalist import (
 )
 
 # Define rate limit: 60 calls per minute
-CALLS = 60
+CALLS = 30
 RATE_LIMIT_PERIOD = 60  # seconds
 PER_PAGE = 200  # Number of results per page
 PAGE_SIZE = PER_PAGE  # Number of taxa to retrieve per page
 MAX_PAGES = 5  # Maximum number of pages to fetch
+DRY_RUN = False  # Set to True for testing without actual API calls
 
 @sleep_and_retry
 @limits(calls=CALLS, period=RATE_LIMIT_PERIOD)
@@ -36,7 +37,6 @@ def fetch_phyla_ids():
     Returns:
         dict: A dictionary mapping taxon IDs to their names.
     """
-    phyla_ids = {}
     try:
         for page in range(1, MAX_PAGES + 1):
             response = rate_limited_api_call(
@@ -174,8 +174,9 @@ def get_histogram_for_species(taxon_id, place_id, quality_grade="research"):
             "place_id": place_id,
             "quality_grade": quality_grade,
             "date_field": "observed",
+            "dry_run": DRY_RUN
         }
-        histogram_data = get_observation_histogram(**params)
+        histogram_data = rate_limited_api_call(get_observation_histogram, **params)
 
         # Initialize histogram with zeros for each month (0-indexed)
         histogram = [0] * 12
@@ -189,6 +190,23 @@ def get_histogram_for_species(taxon_id, place_id, quality_grade="research"):
         print(f"Error fetching histogram for taxon {taxon_id}: {e}")
         return [0] * 12
 
+def read_csv_file(file_name):
+    species_ids = [] # List to store species IDs from the CSV file
+    try:
+        with open(file_name, 'r') as file:
+            reader = csv.reader(file)
+            for row in reader:
+                for item in row:
+                    try:
+                        # Convert each item to an integer and add to the list
+                        species_ids.append(int(item))
+                    except ValueError:
+                        # Skip items that cannot be converted to integers
+                        continue
+            return species_ids
+    except FileNotFoundError:
+        print(f"File {file_name} not found.")
+        return []
 
 def main():
     starttime = datetime.now()
@@ -199,6 +217,9 @@ def main():
     )
     parser.add_argument(
         "--output", default="inat_species_summary.csv", help="Output CSV filename"
+    )
+    parser.add_argument(
+        "--input", default="species_list.csv", help="Input CSV filename"
     )
     parser.add_argument(
         "--place_id", type=int, default=51347, 
@@ -223,16 +244,29 @@ def main():
 
     # Using bulk requests to get observations
     while True:
+
+        # Try to read the input CSV file to get the list of species IDs       
+        filter_ids = read_csv_file(args.input)
+        if filter_ids:
+            print(f"Filtering species by IDs from {args.input}. Found {len(filter_ids)} species.")
+            print(f"First 10 IDs from {args.input} are: {filter_ids[:10]}")
+
         counts_response = rate_limited_api_call(
             get_observation_species_counts,
             place_id=place_id,
             quality_grade=quality_grade,
             per_page=PER_PAGE,
-            page=page
+            page=page,
+            dry_run=DRY_RUN
         )
 
-        results = counts_response["results"]
-        if not results:
+        if filter_ids:
+            # Filter the results based on the provided species IDs
+            results = [result for result in counts_response["results"] if result["taxon"]["id"] in filter_ids]
+        else:
+            results = counts_response["results"]
+
+        if not counts_response:
             print("No more results found.")
             break  # Exit if no results are returned
 
@@ -299,7 +333,11 @@ def main():
             print(f"Fetching histogram for {species_name} (ID: {taxon_id})...")
 
             # Get histogram specifically for this species
-            histogram = get_histogram_for_species(taxon_id, place_id, quality_grade)
+            histogram = get_histogram_for_species(
+                taxon_id=taxon_id, 
+                place_id=place_id, 
+                quality_grade= quality_grade
+            )
 
             # Update histogram data
             species_data[taxon_id]["histogram"] = histogram
