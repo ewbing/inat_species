@@ -15,8 +15,6 @@ This script collects species data from iNaturalist for a specific place and outp
 * Histogram data
 * Month with most observations
 
-It currently pulls from FMR intertidal (place_id=51347)
-
 **Usage**
 -----
 
