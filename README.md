@@ -27,7 +27,7 @@ This script collects species data from iNaturalist for a specific place and outp
 
 **Rate Limiting**
 ----------------
-The script uses rate limiting to avoid exceeding iNaturalist's API call limits. The rate limit is set to 60 calls per minute.
+The script uses rate limiting to avoid exceeding iNaturalist's API call limits. The rate limit is set to 50 calls per minute.
 
 **Output**
 ----------
@@ -45,3 +45,4 @@ The script outputs a CSV file with the collected species data. The file includes
 -------
 * The script uses the `pyinaturalist` library to interact with the iNaturalist API.
 * The script may take several minutes to run depending on the number of pages fetched and the rate limit.
+* Be aware of the iNat [API Rate Limits](https://www.inaturalist.org/pages/developers) and be a good citizen

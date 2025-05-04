@@ -15,8 +15,8 @@ from pyinaturalist import (
     get_taxa,
 )
 
-# Define rate limit: e.g.30 calls per minute
-CALLS = 30
+# Define rate limit: e.g. 50 calls per minute
+CALLS = 50
 RATE_LIMIT_PERIOD = 60  # seconds
 PER_PAGE = 200  # Number of results per page
 PAGE_SIZE = PER_PAGE  # Number of taxa to retrieve per page
@@ -274,8 +274,7 @@ def get_histogram_for_species(taxon_id, place_id, quality_grade="research"):
         print(f"Error fetching histogram for taxon {taxon_id}: {e}")
         return [0] * 12
 
-
-def get_histograms(place_id, quality_grade, species_data):
+def get_histograms(place_id, quality_grade, species_data, starttime):
     """
     Fetch histogram data for each species in species_data.
 
@@ -309,6 +308,12 @@ def get_histograms(place_id, quality_grade, species_data):
             histogram = get_histogram_for_species(
                 taxon_id=taxon_id, place_id=place_id, quality_grade=quality_grade
             )
+
+            # print out elapsed time every 10 species
+            species_number = list(species_data.keys()).index(taxon_id)
+            if species_number % 10 == 0:
+                print(f"Processed {species_number} species.")
+                print(f"Elapsed time: {(datetime.now() - starttime).total_seconds():.2f} seconds")
 
             # Update histogram data
             species_data[taxon_id]["histogram"] = histogram
@@ -376,6 +381,26 @@ def read_id_list_from_csv_file(file_name):
         print(f"Taxon ID file {file_name} not found - will use all taxons")
         return []
 
+def write_id_list_to_csv_file(id_list):
+
+    """
+    Write a list of species IDs to a CSV file.
+
+    Parameters
+    ----------
+    id_list : list
+        A list of integers representing the species IDs to write to the file.
+
+    """
+    
+    file_name = "species_ids.csv"
+
+    with open(file_name, "w", newline='', encoding="utf-8") as file:
+        writer = csv.writer(file)
+        for species_id in id_list:
+            writer.writerow([species_id])
+
+    print(f"Species IDs written to {file_name}")
 
 def write_data_to_csv(data, filename):
     """
@@ -538,7 +563,10 @@ def main():
         if kingdom == "Unknown":
             unknown_kingdom_taxa.append(taxon_id)
 
-    get_histograms(place_id, quality_grade, species_data)
+    # write taxon list to file
+    #write_id_list_to_csv_file(list(species_data.keys()))
+    
+    get_histograms(place_id, quality_grade, species_data, starttime)
 
     # Write data to CSV
     write_data_to_csv(species_data, args.output)
@@ -547,7 +575,6 @@ def main():
 
     print(datetime.now())
     print("Total time taken:", datetime.now() - starttime)
-
 
 if __name__ == "__main__":
     main()
